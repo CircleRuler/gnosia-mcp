@@ -1,0 +1,18 @@
+* text=auto
+
+# Windows scripts keep CRLF so they run in Windows PowerShell without surprises.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+
+*.cs   text
+*.ts   text
+*.mjs  text
+*.json text
+*.md   text
+*.py   text
+
+# binary
+*.dll binary
+*.zip binary
+*.png binary
+*.jpg binary

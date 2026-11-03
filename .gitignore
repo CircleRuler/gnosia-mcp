@@ -1,0 +1,35 @@
+# --- build outputs -----------------------------------------------------------
+dist/
+build/
+node_modules/
+*.dll
+*.zip
+*.rar
+*.7z
+
+# --- local / private ---------------------------------------------------------
+captures/
+backups/
+runtime/
+*.dump.json
+gamedata-dump.json
+iface-dump.json
+*.log
+.gnosia-state/
+
+# --- release artifacts (attach to GitHub Releases, do not commit) -------------
+release/*.zip
+release/*.dll
+release/stage/
+
+# --- editor / OS -------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- never commit the game or the mod loader ---------------------------------
+GNOSIA/
+BepInEx/
+doorstop_config.ini
+winhttp.dll
