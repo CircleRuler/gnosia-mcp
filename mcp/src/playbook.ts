@@ -385,30 +385,33 @@ total every frame, so 乘客 always has a count and always stops the walk. To re
 
 Useful indices: 0 随机, 1 乘客, 2 古诺希亚; \`yakuSelect = [0,5,7,1,2,3,4,6,8]\`.
 
-## 4.12 The 发言 button, and why Enter is not "next" here
+## 4.12 The 发言 button: speaking and passing are both decisions
 
 The 发言 [W] button in the top-right corner means "you may say something now". It is **not**
 limited to the five discussion rounds — it also appears in ordinary story dialogue, e.g. when
 塞思 asks 你认为应当把人类从这个宇宙中消灭吗？.
 
-Two different keys, two different meanings:
-
-| key | what it does |
+| input | what it does |
 | --- | --- |
 | W (action 3) | opens the speech list. Nothing is committed. This is the only way the list appears. |
-| Enter (action 0) | confirms whatever row that list has highlighted — with the list closed, it takes row 1. |
+| Enter with the list OPEN | confirms the highlighted row. |
+| Enter at a ROUND window with the list CLOSED | declines to speak and lets the discussion continue. |
+| Enter at a reply window, even with the list CLOSED | can select the first row; never use it as a generic pass. |
 
-So "press Enter to see what happens" silently answers the question for the player. That is what
-happened three times in a row on the first day: 明白了 / 应当消灭 were picked by Enter without the
-list ever being shown.
-
-Both layers now refuse to let that happen:
+A blind Enter is therefore not "next": depending on the window it either answers for the player
+or chooses silence. Both layers stop \`advance\` when the button is up so neither choice happens
+by accident:
 
 - the plugin's \`/action/advance\` returns \`stopped_because: "screen_owns_input"\` with
   \`blocked_by:["speak_available"]\` when the button is up, and presses nothing;
-- the MCP's \`gnosia_advance\` reports \`window.kind: "speak"\`.
+- the MCP's \`gnosia_advance\` reports the window kind and presses nothing.
 
-The correct move at that stop is always: \`gnosia_speak\` → read \`items\` → \`gnosia_command {index}\`.
+At a **ROUND** stop, choose explicitly: \`gnosia_pass\` to stay silent, or
+\`gnosia_speak\` → read \`items\` → \`gnosia_command {index}\` to speak. \`gnosia_pass\` sends
+one short Enter directly rather than calling the guarded advance route, and never probes with W.
+At a **reply**, ordinary \`speak\` or mandatory \`report\` prompt it refuses; answer those explicitly.
+The old \`advance(pass_window:true)\` reply shortcut is disabled: testing showed that a closed
+reply list can still consume Enter as its first row.
 
 **Do not read \`command_list\` at all.** It is the 指令一览 (GameMenuSkillScreen) two-column list —
 left/right are the 18 visible rows of that panel, and it is empty everywhere else, which is why it

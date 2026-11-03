@@ -9,7 +9,7 @@ import { advance, frames, inputOwningScreens, readTranscript, recordLine, scroll
 import { appendJournal, deleteMemory, readJournal, readMemory, readNotes, writeMemory, writeNotes } from './memory.js';
 import { focusGame, gameInfo, launchGame, quitGame, windowState } from './steam.js';
 import {
-  actWindow, pluginAdvance, pluginClose, pluginFlushCommands, pluginPhase, pluginCommand, pluginCommands, pluginMove, pluginSelect,
+  actWindow, readRows, pluginAdvance, pluginClose, pluginFlushCommands, pluginPhase, pluginCommand, pluginCommands, pluginMove, pluginSelect,
   dwell, pluginPing, pluginScreens, pluginSpeakOpen, pluginState, pluginTarget, pluginUi,
   pluginSystemButton, pluginPath,
   pluginVoteConfirm, pluginVoteSelect, pluginVoteMoveChecked, pluginVoteProbe, pluginSetField, pluginTargetList,
@@ -45,7 +45,7 @@ ONE PRESS, THEN THINK
 A confirm is a decision. Press once, read the result, decide. Never chain presses to "see what happens", and never bundle open + pick + confirm into one step.
 
 SPEAKING IS A DECISION
-When the 发言 [W] button is on screen, the game is waiting for a line from you - in the five rounds and in ordinary story dialogue alike. Enter there does NOT advance: it confirms whichever row the (closed) list has highlighted, i.e. it answers for the player. Open the list with gnosia_speak, read the rows, then pick with gnosia_command.
+When the 发言 [W] button is on screen, speaking or staying silent is a CHOICE, so gnosia_advance stops instead of deciding for you. W opens the list; Enter with the list OPEN confirms its highlighted row. At a ROUND window with the list CLOSED, Enter is the game's silence path and must be sent explicitly with gnosia_pass. Never pass a reply window: closed-list Enter can select its first row. To speak: gnosia_speak, read the rows, then gnosia_command.
 
 START WITH gnosia_playbook (the manual) and gnosia_status.
 
@@ -220,7 +220,7 @@ server.registerTool('gnosia_move', {
 }));
 
 server.registerTool('gnosia_speak', {
-  description: 'Open the 发言 list by pressing W and return the exact entries. This is the ONLY way the list appears: it does not pop up by itself, and Enter while the 发言 button is showing answers with whatever row is highlighted instead of opening anything. Call it whenever gnosia_advance stops with window.kind = "speak" (button up, list closed) or "round"/"report"/"reply". Opening the list commits nothing - pick a row afterwards with gnosia_command. The window is left open for visible_ms so a human watching can read it first.',
+  description: 'Open the 发言 list by pressing W and return the exact entries. This is the ONLY way the list appears: it does not pop up by itself, and Enter never opens it. With the list open Enter confirms the highlighted row; only at a ROUND window with the list closed is gnosia_pass the explicit silence path (a reply window can treat Enter as its first row). Call gnosia_speak whenever gnosia_advance stops with window.kind = "speak" (button up, list closed) or "round"/"report"/"reply" and you intend to speak. Opening the list commits nothing - pick a row afterwards with gnosia_command. The window is left open for visible_ms so a human watching can read it first.',
   inputSchema: {
     visible_ms: z.number().int().min(0).max(5000).optional().describe('How long to leave the list on screen before returning (default 1200ms)')
   },
@@ -894,7 +894,7 @@ server.registerTool('gnosia_advance', {
     key: z.string().optional(),
     quiet_ms: z.number().int().min(100).max(3000).optional().describe('How long the screen must stay unchanged to count as settled (default 380ms).'),
     stop_on_no_change: z.number().int().min(1).max(3).optional(),
-    pass_window: z.boolean().optional().describe('Leave the window that is already open without acting (closes the list and keeps walking). Never use this on a report window.')
+    pass_window: z.boolean().optional().describe('Deprecated and ignored: generic reply-window passing is unsafe because closed-list Enter can select row 0. Use gnosia_pass only at a ROUND window.')
   },
   outputSchema,
   annotations: annotations.act
@@ -907,7 +907,7 @@ server.registerTool('gnosia_advance', {
 })));
 
 server.registerTool('gnosia_pass', {
-  description: 'Stay silent. It presses Enter once WITHOUT opening the 发言 list, which is the game\'s own "say nothing this round" path: no command is committed and 注意度 (the attention that makes people suspect you) does not rise. Use it when gnosia_advance stopped at a round or reply window and speaking is not worth the attention - the tutorial is explicit that 发言 raises 注意度, that 怀疑/袒护 raise it most, and that being talkative is what gets you accused.',
+  description: 'Stay silent for one ROUND. It presses Enter once WITHOUT opening the 发言 list, the game\'s own "say nothing this round" path: no command is committed and 注意度 does not rise. Use it only when gnosia_advance stopped with window.kind = "round". It refuses reply/report/speak prompts: in a reply window closed-list Enter can select the first row instead of declining.',
   inputSchema: {},
   outputSchema,
   annotations: annotations.act
@@ -925,16 +925,52 @@ server.registerTool('gnosia_pass', {
       state: await pluginState()
     };
   }
-  const probe = await windowNow();
+  // Do not use windowNow() here: its fallback probe presses W, which would open
+  // the very list that passing is supposed to leave closed. The current state
+  // already carries the speak button, cursor and ROUND sprites we need.
   const before = await pluginState();
-  const result = await pluginAdvance();
+  const iface = (before?.interface ?? {}) as Record<string, unknown>;
+  const speak = (iface.speak ?? {}) as { button_visible?: boolean; menu_open?: boolean };
+  const select = Number(iface.select ?? -1);
+  const offered = speak.button_visible === true || speak.menu_open === true || (Number.isFinite(select) && select >= 0);
+  const phase = typeof iface.now_phase === 'number' ? iface.now_phase : null;
+  const currentWindow = actWindow(before ?? null, readRows(before ?? null), offered, phase);
+  if (speak.menu_open === true || (Number.isFinite(select) && select >= 0)) {
+    return {
+      passed: false,
+      refused: true,
+      reason: 'The 发言 list is open; Enter would confirm its highlighted row instead of passing.',
+      window_before: currentWindow,
+      hint: 'Choose explicitly with gnosia_command, or close the list before calling gnosia_pass.',
+      state: before
+    };
+  }
+  if (currentWindow.kind !== 'round') {
+    return {
+      passed: false,
+      refused: true,
+      reason: currentWindow.kind === 'report'
+        ? 'A 报告 window is mandatory; staying silent is not a valid substitute.'
+        : currentWindow.kind === 'reply'
+          ? 'A reply window can treat closed-list Enter as its first row, so passing here is unsafe.'
+          : 'No ROUND silence window is active, so nothing was pressed.',
+      window_before: currentWindow,
+      hint: 'Use gnosia_speak and gnosia_command to answer explicitly, or gnosia_advance to reach a ROUND window.',
+      state: before
+    };
+  }
+  // /action/advance deliberately refuses when the 发言 button is visible. Pass
+  // is the explicit exception: after the guards above, send one short virtual
+  // Enter directly, with the list closed, to take the game's own silence path.
+  const result = await pluginSystemButton(0, 50);
   await new Promise((resolve) => setTimeout(resolve, 600));
   return {
     passed: result.ok === true,
-    window_before: actWindow(before ?? null, probe.rows, probe.live, probe.phase),
-    hint: probe.live
+    window_before: currentWindow,
+    press: result,
+    hint: result.ok === true
       ? 'Stayed silent. Nothing was committed, so attention did not rise.'
-      : 'There was no command window to decline - the press just moved the dialogue on.',
+      : 'The input hook did not accept the press; nothing was committed.',
     state: await pluginState()
   };
 }));

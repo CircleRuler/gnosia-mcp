@@ -104,7 +104,7 @@ export interface AdvanceOptions {
   quietMs?: number;
   timeoutMs?: number;
   stopOnNoChange?: number;
-  /** Ignore the window on the very first line and keep walking (explicit "do not act"). */
+  /** Deprecated: reply windows are never blindly passed; kept only for API compatibility. */
   passWindow?: boolean;
 }
 
@@ -260,7 +260,6 @@ export async function advance(options: AdvanceOptions = {}): Promise<Record<stri
   let stopped = 'max_presses';
   let window: ActWindow | null = null;
   let blockedBy: ScreenBrief[] | null = null;
-  let passedSignature: string | null = null;
 
   // Everything below goes through the plugin, which raises a virtual Enter inside
   // the process. No SendInput, so the game is never brought to the foreground and
@@ -283,27 +282,12 @@ export async function advance(options: AdvanceOptions = {}): Promise<Record<stri
     const probe = await windowNow();
     const items = probe.rows;
     if (probe.live) {
-      const signature = `${probe.phase}:${items.join('|')}`;
-      const verdict = actWindow(before, items, true, probe.phase);
-      // A reaction window stays valid for several lines: the same five rows keep
-      // being offered until the topic moves on. "Pass" therefore means "decline
-      // this particular window", not "press enter once", otherwise every line
-      // would stop again on the same list. Round and 报告 windows are never
-      // passed - those are mandatory and skipping one changes the whole day.
-      const passable = verdict.kind === 'reply';
-      if (options.passWindow && passable && (passedSignature === null || passedSignature === signature)) {
-        passedSignature = signature;
-        // Deliberately NO /action/close here. That endpoint only writes
-        // select = -1; it hides the column's background but leaves its five text
-        // lines on screen, because nothing except the game's own
-        // UnvisibleCommands() clears those text areas. Declining is done by
-        // walking on: with no row highlighted Enter cannot commit anything.
-        await delay(300);
-      } else {
-        stopped = 'can_act';
-        window = verdict;
-        break;
-      }
+      // Every live window is a decision. In particular, do not blindly pass a
+      // reply: testing showed that closed-list Enter can select its first row.
+      // Silence is supported only by gnosia_pass at an explicit ROUND window.
+      stopped = 'can_act';
+      window = actWindow(before, items, true, probe.phase);
+      break;
     }
 
     // Do NOT press Enter on a screen that is waiting for a pick. That press is
@@ -349,7 +333,7 @@ export async function advance(options: AdvanceOptions = {}): Promise<Record<stri
       : window?.kind === 'report'
         ? 'This is a 报告 window - it draws no ROUND counter but it is mandatory. Skipping it changes how the whole day plays out. Call gnosia_speak and report.'
         : window?.kind === 'reply'
-          ? 'Someone just spoke and you may react (no ROUND counter, few rows like 反驳/寻求同意). This is optional: reacting also raises 注意度, and gnosia_pass declines it without committing anything.'
+          ? 'Someone just spoke and you may react (no ROUND counter, few rows like 反驳/寻求同意). Do NOT use gnosia_pass here: closed-list Enter can select the first row. Choose explicitly with gnosia_speak and gnosia_command.'
           : 'The game is waiting for a pick but no rows could be read yet. Call gnosia_speak to open the column and see them.'
     : stopped === 'screen_owns_input'
       ? `Stopped on ${(blockedBy ?? []).map((s) => s.type).join(', ')} - Enter there would confirm the highlighted row instead of advancing, so nothing was pressed. Pick explicitly: gnosia_vote (after gnosia_vote_list) on the vote screen, gnosia_ui for a menu or dialog, and on MyRoomScreen the rows are 0 睡觉 / 1 指令一览 / 2 升级 / 3 退出房间.`

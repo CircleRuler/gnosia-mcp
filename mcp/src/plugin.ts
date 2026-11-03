@@ -536,8 +536,9 @@ export function actWindow(
   const speak = iface?.speak;
   // The 发言 button is the game's own "you may speak now". It appears BEFORE the
   // list does - the list only exists after W - so it has to count as a live
-  // window by itself, otherwise advance walks straight through the question and
-  // Enter answers it with whatever row happens to be highlighted.
+  // window by itself. Otherwise advance would silently choose for the player:
+  // Enter confirms a row when the list is open, declines a ROUND when the list
+  // is closed, and can select a reply's first row even when that list is closed.
   const speakAvailable = speak?.button_visible === true || speak?.menu_open === true;
   const speakRows = Array.isArray(speak?.options) ? speak.options : [];
   const commands = items && items.length > 0 ? items : (speakRows.length > 0 ? speakRows : commandRows(state));
